@@ -1,0 +1,132 @@
+
+const express = require("express");
+
+const app = express();
+const PORT = 3000;
+
+// Middleware: read JSON data from requests
+app.use(express.json());
+
+// Temporary student data
+let students = [
+    { id: 1, name: "Ganga", department: "IT" },
+    { id: 2, name: "Priya", department: "CSE" }
+];
+
+// 1. GET: retrieve all students
+app.get("/students", (req, res) => {
+    res.status(200).json(students);
+});
+
+// 2. GET: retrieve one student by ID
+app.get("/students/:id", (req, res) => {
+    const id = Number(req.params.id);
+    const student = students.find(s => s.id === id);
+
+    if (!student) {
+        return res.status(404).json({
+            message: "Student not found"
+        });
+    }
+
+    res.status(200).json(student);
+});
+
+// 3. POST: create a new student
+app.post("/students", (req, res) => {
+    const { id, name, department } = req.body;
+
+    if (id == null || !name || !department) {
+        return res.status(400).json({
+            message: "id, name and department are required"
+        });
+    }
+
+    if (students.some(s => s.id === Number(id))) {
+        return res.status(409).json({
+            message: "Student ID already exists"
+        });
+    }
+
+    const newStudent = {
+        id: Number(id),
+        name,
+        department
+    };
+
+    students.push(newStudent);
+
+    res.status(201).json(newStudent);
+});
+
+// 4. PUT: update a student
+app.put("/students/:id", (req, res) => {
+    const id = Number(req.params.id);
+    const student = students.find(s => s.id === id);
+
+    if (!student) {
+        return res.status(404).json({
+            message: "Student not found"
+        });
+    }
+
+    const { name, department } = req.body;
+
+    if (!name || !department) {
+        return res.status(400).json({
+            message: "name and department are required"
+        });
+    }
+
+    student.name = name;
+    student.department = department;
+
+    res.status(200).json(student);
+});
+
+// 5. DELETE: remove a student
+app.delete("/students/:id", (req, res) => {
+    const id = Number(req.params.id);
+    const index = students.findIndex(s => s.id === id);
+
+    if (index === -1) {
+        return res.status(404).json({
+            message: "Student not found"
+        });
+    }
+
+    students.splice(index, 1);
+
+    res.status(200).json({
+        message: "Student deleted successfully"
+    });
+});
+
+// Start the server
+app.listen(PORT, () => {
+    console.log(`Server running at http://localhost:${PORT}`);
+});
+
+
+Step 1: Create a project
+mkdir advice-app
+cd advice-app
+npm init -y
+npm install express
+
+
+Create a file named server.js.
+Step 2: Write the code
+
+const express = require("express");
+const app = express();
+
+app.get("/advice", async (req, res) => {
+    const response = await fetch("https://api.adviceslip.com/advice");
+    const data = await response.json();
+    res.json(data.slip);
+});
+
+app.listen(3000, () => {
+    console.log("Server running on port 3000");
+});

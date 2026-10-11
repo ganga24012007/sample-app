@@ -1,0 +1,221 @@
+
+
+## Step 1: Install Java and SSH
+
+Open the Ubuntu terminal and run:
+
+
+sudo apt update
+sudo apt install openjdk-11-jdk ssh rsync wget -y
+
+Check Java:
+
+java -version
+
+## Step 2: Download and extract Hadoop
+
+cd ~
+wget https://downloads.apache.org/hadoop/common/hadoop-3.4.0/hadoop-3.4.0.tar.gz
+tar -xzf hadoop-3.4.0.tar.gz
+mv hadoop-3.4.0 hadoop
+
+
+## Step 3: Set environment variables
+
+
+nano ~/.bashrc
+
+Add these lines at the bottom:
+
+export JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64
+export HADOOP_HOME=$HOME/hadoop
+export PATH=$PATH:$HADOOP_HOME/bin:$HADOOP_HOME/sbin
+
+Save using `Ctrl+O`, Enter, then `Ctrl+X`.
+
+Apply the settings:
+
+source ~/.bashrc
+
+
+## Step 4: Configure Hadoop
+
+To keep it simple, edit only the three essential files for this basic HDFS + MapReduce setup.
+
+
+nano $HADOOP_HOME/etc/hadoop/core-site.xml
+```
+
+Replace its contents with:
+
+<configuration>
+    <property>
+        <name>fs.defaultFS</name>
+        <value>hdfs://localhost:9000</value>
+    </property>
+</configuration>
+```
+
+2\. `hdfs-site.xml`
+
+
+nano $HADOOP_HOME/etc/hadoop/hdfs-site.xml
+
+Enter:
+
+
+<configuration>
+    <property>
+        <name>dfs.replication</name>
+        <value>1</value>
+    </property>
+</configuration>
+
+3\. `mapred-site.xml`
+
+nano $HADOOP_HOME/etc/hadoop/mapred-site.xml
+
+Enter:
+
+<configuration>
+    <property>
+        <name>mapreduce.framework.name</name>
+        <value>local</value>
+    </property>
+</configuration>
+
+This uses Hadoop's local MapReduce execution mode, which is simpler because you don't need to configure YARN for the sample job. If your examiner specifically requires a pseudo-distributed cluster with YARN, additional configuration is necessary.
+
+Set Java for Hadoop:
+
+echo 'export JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64' >> $HADOOP_HOME/etc/hadoop/hadoop-env.sh
+
+## Step 5: Format and start HDFS
+
+Format the NameNode only for the first setup:
+
+hdfs namenode -format
+
+start-dfs.sh
+
+
+If SSH is not configured, the startup command may fail. For a standard single-node cluster, configure passwordless SSH before continuing.
+
+## Step 6: Create an input file
+
+echo "hello hadoop hello world hadoop" > input.txt
+
+hdfs dfs -mkdir -p /input
+hdfs dfs -put input.txt /input/
+
+hdfs dfs -cat /input/input.txt
+
+## Step 7: Run the WordCount program
+
+hadoop jar $HADOOP_HOME/share/hadoop/mapreduce/hadoop-mapreduce-examples-3.4.0.jar wordcount /input /output
+
+
+If you run it again, remove the old output directory first:
+
+hdfs dfs -rm -r /output
+
+
+## Step 8: Display the output
+
+hdfs dfs -cat /output/part-r-00000
+```
+
+Expected result:
+
+```
+hadoop  2
+hello   2
+world   1
+```
+
+## Remember these five commands for the exam
+
+| Command                              | Use                       |
+| ------------------------------------ | ------------------------- |
+| `hadoop version`                     | Check Hadoop installation |
+| `hdfs namenode -format`              | Initialize HDFS           |
+| `start-dfs.sh`                       | Start HDFS                |
+| `hdfs dfs -put input.txt /input/`    | Upload input              |
+| `hdfs dfs -cat /output/part-r-00000` | Display result            |
+
+One important thing: Are you doing this on Ubuntu/Linux or Windows? Tell me which one, and I'll give you the shortest working installation procedure for that system without unnecessary steps.
+
+Actual code is:
+
+import java.io.IOException;
+import java.util.StringTokenizer;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.IntWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.Mapper;
+import org.apache.hadoop.mapreduce.Reducer;
+import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+
+public class WordCount {
+
+    public static class MyMapper
+        extends Mapper<Object, Text, Text, IntWritable> {
+
+        private Text word = new Text();
+        private final IntWritable one = new IntWritable(1);
+
+        public void map(Object key, Text value, Context context)
+            throws IOException, InterruptedException {
+
+            StringTokenizer itr =
+                new StringTokenizer(value.toString());
+
+            while (itr.hasMoreTokens()) {
+                word.set(itr.nextToken());
+                context.write(word, one);
+            }
+        }
+    }
+
+    public static class MyReducer
+        extends Reducer<Text, IntWritable, Text, IntWritable> {
+
+        private IntWritable result = new IntWritable();
+
+        public void reduce(Text key, Iterable<IntWritable> values,
+                           Context context)
+            throws IOException, InterruptedException {
+
+            int sum = 0;
+
+            for (IntWritable val : values) {
+                sum += val.get();
+            }
+
+            result.set(sum);
+            context.write(key, result);
+        }
+    }
+
+    public static void main(String[] args) throws Exception {
+
+        Configuration conf = new Configuration();
+        Job job = Job.getInstance(conf, "Word Count");
+
+        job.setJarByClass(WordCount.class);
+        job.setMapperClass(MyMapper.class);
+        job.setReducerClass(MyReducer.class);
+
+        job.setOutputKeyClass(Text.class);
+        job.setOutputValueClass(IntWritable.class);
+
+        FileInputFormat.addInputPath(job, new Path(args[0]));
+        FileOutputFormat.setOutputPath(job, new Path(args[1]));
+
+        System.exit(job.waitForCompletion(true) ? 0 : 1);
+    }
+}

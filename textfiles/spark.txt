@@ -1,0 +1,16 @@
+java -version
+scala -version
+spark-shell
+
+echo "hello spark" > input.txt
+echo "hello hadoop" >> input.txt
+
+spark-shell
+1)val inputfile = sc.textFile("input.txt")
+val words = inputfile.flatMap(line => line.split(" "))
+val pairs = words.map(word => (word, 1))
+val counts = pairs.reduceByKey(_ + _)
+counts.collect().foreach(println)
+counts.saveAsTextFile("output")
+
+:quit

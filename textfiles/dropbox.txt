@@ -1,0 +1,87 @@
+index.html
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Student Document Storage</title>
+    <style>
+        body {
+            font-family: Arial;
+            background: #eef5ff;
+            text-align: center;
+            padding: 60px;
+        }
+
+        .box {
+            background: white;
+            padding: 30px;
+            max-width: 400px;
+            margin: auto;
+            border-radius: 12px;
+        }
+
+        button {
+            background: #1769e0;
+            color: white;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="box">
+        <h2>Student Document Storage</h2>
+        <p>Upload your certificates and documents to Dropbox.</p>
+
+        <form action="/upload" method="POST"
+              enctype="multipart/form-data">
+            <input type="file" name="file" required>
+            <br>
+            <button type="submit">Upload to Dropbox</button>
+        </form>
+    </div>
+</body>
+</html>
+
+server.js
+
+const express = require("express");
+const multer = require("multer");
+const { Dropbox } = require("dropbox");
+
+const app = express();
+const upload = multer({ storage: multer.memoryStorage() });
+
+app.use(express.static("public"));
+
+app.post("/upload", upload.single("file"), async (req, res) => {
+    try {
+        const dbx = new Dropbox({
+            accessToken: process.env.DROPBOX_ACCESS_TOKEN
+        });
+
+        await dbx.filesUpload({
+            path: "/" + req.file.originalname,
+            contents: req.file.buffer
+        });
+
+        res.send(`
+            <h2>File uploaded successfully!</h2>
+            <a href="/">Upload another file</a>
+        `);
+    } catch (error) {
+        console.error(error);
+        res.status(500).send("Upload failed. Check your Dropbox token and permissions.");
+    }
+});
+
+app.listen(3000, () => {
+    console.log("Server running at http://localhost:3000");
+});
+
+$env:DROPBOX_ACCESS_TOKEN="YOUR_ACCESS_TOKEN"
+node server.js
+npm init -y
+npm install express multer dropbox

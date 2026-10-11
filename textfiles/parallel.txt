@@ -1,0 +1,76 @@
+sudo apt-get update
+sudo apt-get install libopenmpi-dev
+sudo apt-get install openmpi-bin
+
+mpicc --version
+mpirun --version
+gcc --version
+
+nano parallel_sum.c
+
+#include <stdio.h>
+#include <mpi.h>
+
+int main(int argc, char *argv[]) {
+    int rank, size;
+    int local_sum, total_sum;
+    int start, end, i;
+
+    MPI_Init(&argc, &argv);
+
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+
+    start = rank * 10 + 1;
+    end = start + 9;
+
+    local_sum = 0;
+
+    for (i = start; i <= end; i++) {
+        local_sum += i;
+    }
+
+    MPI_Reduce(&local_sum, &total_sum, 1,
+               MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+
+    if (rank == 0) {
+        printf("Total sum = %d\n", total_sum);
+    }
+
+    MPI_Finalize();
+    return 0;
+}
+mpirun -np 4 ./parallel_sum
+
+openmp
+
+nano omp_array_sum.c
+
+
+#include <stdio.h>
+#include <omp.h>
+
+int main() {
+    int a[100];
+    int i;
+    int sum = 0;
+
+    // CHANGE: Initialize the array with values 1 to 100
+    for (i = 0; i < 100; i++) {
+        a[i] = i + 1;
+    }
+
+    // COMMON: Parallelize the loop and combine partial sums
+    #pragma omp parallel for reduction(+:sum)
+    for (i = 0; i < 100; i++) {
+        sum += a[i];
+    }
+
+    // COMMON: Print the final result once
+    printf("Sum of 100 elements = %d\n", sum);
+
+    return 0;
+}
+
+gcc -fopenmp omp_array_sum.c -o omp_array_sum
+OMP_NUM_THREADS=4 ./omp_array_sum

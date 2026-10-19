@@ -1,7 +1,7 @@
 npm init -y
 npm install express mongoose dotenv
 
-inongodb atlas create db cluster,make connection,copy string connection,
+inmongodb atlas create db cluster,make connection,copy string connection,
 create db access-adduser, crea netwrok-acees-give ip
 
 commands

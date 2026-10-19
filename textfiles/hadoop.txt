@@ -219,3 +219,232 @@ public class WordCount {
         System.exit(job.waitForCompletion(true) ? 0 : 1);
     }
 }
+
+
+
+overall
+
+
+#!/bin/bash
+set -e
+
+echo "===== 1. INSTALL JAVA, SSH AND TOOLS ====="
+sudo apt update
+sudo apt install -y openjdk-11-jdk openssh-server openssh-client rsync wget
+
+export JAVA_HOME="$(dirname "$(dirname "$(readlink -f "$(which javac)")")")"
+export HADOOP_HOME="$HOME/hadoop-3.4.2"
+export PATH="$PATH:$JAVA_HOME/bin:$HADOOP_HOME/bin:$HADOOP_HOME/sbin"
+
+echo "===== 2. DOWNLOAD AND EXTRACT HADOOP ====="
+cd "$HOME"
+
+if [ ! -d "$HADOOP_HOME" ]; then
+  wget -c https://downloads.apache.org/hadoop/common/hadoop-3.4.2/hadoop-3.4.2.tar.gz
+  tar -xzf hadoop-3.4.2.tar.gz
+  mv hadoop-3.4.2 "$HADOOP_HOME"
+fi
+
+echo "===== 3. SET ENVIRONMENT VARIABLES ====="
+touch "$HOME/.bashrc"
+
+grep -v -E '^export (JAVA_HOME|HADOOP_HOME|HADOOP_CONF_DIR|PATH=.*hadoop-3\.4\.2)' "$HOME/.bashrc" > "$HOME/.bashrc.tmp" || true
+mv "$HOME/.bashrc.tmp" "$HOME/.bashrc"
+
+cat >> "$HOME/.bashrc" <<EOF
+export JAVA_HOME=$JAVA_HOME
+export HADOOP_HOME=$HADOOP_HOME
+export HADOOP_CONF_DIR=\$HADOOP_HOME/etc/hadoop
+export PATH=\$PATH:\$JAVA_HOME/bin:\$HADOOP_HOME/bin:\$HADOOP_HOME/sbin
+EOF
+
+export HADOOP_CONF_DIR="$HADOOP_HOME/etc/hadoop"
+
+sed -i "/^export JAVA_HOME=/d" "$HADOOP_HOME/etc/hadoop/hadoop-env.sh"
+echo "export JAVA_HOME=$JAVA_HOME" >> "$HADOOP_HOME/etc/hadoop/hadoop-env.sh"
+
+echo "===== 4. CONFIGURE HADOOP XML FILES ====="
+
+cat > "$HADOOP_CONF_DIR/core-site.xml" <<EOF
+<configuration>
+  <property>
+    <name>fs.defaultFS</name>
+    <value>hdfs://localhost:9000</value>
+  </property>
+  <property>
+    <name>hadoop.tmp.dir</name>
+    <value>$HOME/hadoopdata/tmp</value>
+  </property>
+</configuration>
+EOF
+
+cat > "$HADOOP_CONF_DIR/hdfs-site.xml" <<EOF
+<configuration>
+  <property>
+    <name>dfs.replication</name>
+    <value>1</value>
+  </property>
+  <property>
+    <name>dfs.namenode.name.dir</name>
+    <value>file://$HOME/hadoopdata/namenode</value>
+  </property>
+  <property>
+    <name>dfs.datanode.data.dir</name>
+    <value>file://$HOME/hadoopdata/datanode</value>
+  </property>
+</configuration>
+EOF
+
+cat > "$HADOOP_CONF_DIR/mapred-site.xml" <<'EOF'
+<configuration>
+  <property>
+    <name>mapreduce.framework.name</name>
+    <value>yarn</value>
+  </property>
+  <property>
+    <name>mapreduce.application.classpath</name>
+    <value>$HADOOP_MAPRED_HOME/share/hadoop/mapreduce/*:$HADOOP_MAPRED_HOME/share/hadoop/mapreduce/lib/*</value>
+  </property>
+</configuration>
+EOF
+
+cat > "$HADOOP_CONF_DIR/yarn-site.xml" <<'EOF'
+<configuration>
+  <property>
+    <name>yarn.nodemanager.aux-services</name>
+    <value>mapreduce_shuffle</value>
+  </property>
+  <property>
+    <name>yarn.nodemanager.env-whitelist</name>
+    <value>JAVA_HOME,HADOOP_COMMON_HOME,HADOOP_HDFS_HOME,HADOOP_CONF_DIR,CLASSPATH_PREPEND_DISTCACHE,HADOOP_YARN_HOME,HADOOP_HOME,PATH,LANG,TZ,HADOOP_MAPRED_HOME</value>
+  </property>
+</configuration>
+EOF
+
+echo "===== 5. CONFIGURE PASSWORDLESS SSH ====="
+sudo service ssh start
+
+mkdir -p "$HOME/.ssh"
+chmod 700 "$HOME/.ssh"
+
+if [ ! -f "$HOME/.ssh/id_rsa" ]; then
+  ssh-keygen -t rsa -P '' -f "$HOME/.ssh/id_rsa"
+fi
+
+touch "$HOME/.ssh/authorized_keys"
+grep -qxF "$(cat "$HOME/.ssh/id_rsa.pub")" "$HOME/.ssh/authorized_keys" || cat "$HOME/.ssh/id_rsa.pub" >> "$HOME/.ssh/authorized_keys"
+
+chmod 600 "$HOME/.ssh/authorized_keys"
+
+ssh-keyscan -H localhost >> "$HOME/.ssh/known_hosts" 2>/dev/null || true
+
+echo "===== 6. INITIALIZE HDFS IF NEW ====="
+mkdir -p "$HOME/hadoopdata/namenode" "$HOME/hadoopdata/datanode"
+
+if [ ! -f "$HOME/hadoopdata/namenode/current/VERSION" ]; then
+  "$HADOOP_HOME/bin/hdfs" namenode -format
+else
+  echo "Existing NameNode metadata found; skipping format."
+fi
+
+echo "===== 7. START HDFS AND YARN ====="
+"$HADOOP_HOME/sbin/start-dfs.sh"
+"$HADOOP_HOME/sbin/start-yarn.sh"
+
+sleep 5
+
+echo "===== 8. CREATE INPUT FILE ====="
+mkdir -p "$HOME/wordcount"
+cd "$HOME/wordcount"
+
+cat > input.txt <<'EOF'
+hello hadoop
+hello linux
+hadoop mapreduce
+EOF
+
+echo "===== 9. CREATE JAVA MAPREDUCE WORDCOUNT ====="
+cat > WordCount.java <<'EOF'
+import java.io.IOException;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.IntWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.Mapper;
+import org.apache.hadoop.mapreduce.Reducer;
+import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+
+public class WordCount {
+    public static class WordMapper
+            extends Mapper<Object, Text, Text, IntWritable> {
+        private final static IntWritable one = new IntWritable(1);
+        private final Text word = new Text();
+
+        public void map(Object key, Text value, Context context)
+                throws IOException, InterruptedException {
+            String[] words = value.toString().split("\\s+");
+            for (String w : words) {
+                if (!w.isEmpty()) {
+                    word.set(w);
+                    context.write(word, one);
+                }
+            }
+        }
+    }
+
+    public static class WordReducer
+            extends Reducer<Text, IntWritable, Text, IntWritable> {
+        public void reduce(Text key, Iterable<IntWritable> values,
+                           Context context)
+                throws IOException, InterruptedException {
+            int sum = 0;
+            for (IntWritable value : values) {
+                sum += value.get();
+            }
+            context.write(key, new IntWritable(sum));
+        }
+    }
+
+    public static void main(String[] args) throws Exception {
+        if (args.length != 2) {
+            System.err.println("Usage: WordCount <input> <output>");
+            System.exit(2);
+        }
+
+        Configuration conf = new Configuration();
+        Job job = Job.getInstance(conf, "Word Count");
+        job.setJarByClass(WordCount.class);
+        job.setMapperClass(WordMapper.class);
+        job.setReducerClass(WordReducer.class);
+        job.setOutputKeyClass(Text.class);
+        job.setOutputValueClass(IntWritable.class);
+
+        FileInputFormat.addInputPath(job, new Path(args[0]));
+        FileOutputFormat.setOutputPath(job, new Path(args[1]));
+
+        System.exit(job.waitForCompletion(true) ? 0 : 1);
+    }
+}
+EOF
+
+echo "===== 10. COMPILE JAVA AND CREATE JAR ====="
+mkdir -p classes
+"$JAVA_HOME/bin/javac" -classpath "$("$HADOOP_HOME/bin/hadoop" classpath)" -d classes WordCount.java
+"$JAVA_HOME/bin/jar" -cvf wordcount.jar -C classes .
+
+echo "===== 11. UPLOAD INPUT TO HDFS ====="
+"$HADOOP_HOME/bin/hdfs" dfs -mkdir -p "/user/$USER/input"
+"$HADOOP_HOME/bin/hdfs" dfs -put -f input.txt "/user/$USER/input/input.txt"
+
+echo "===== 12. RUN MAPREDUCE WORD COUNT ====="
+"$HADOOP_HOME/bin/hadoop" jar wordcount.jar WordCount "/user/$USER/input" "/user/$USER/output"
+
+echo "===== 13. DISPLAY FINAL OUTPUT ====="
+"$HADOOP_HOME/bin/hdfs" dfs -cat "/user/$USER/output/part-r-00000"
+
+echo
+echo "===== COMPLETED SUCCESSFULLY ====="
+echo "NameNode UI: http://localhost:9870"
+echo "YARN UI:     http://localhost:8088"

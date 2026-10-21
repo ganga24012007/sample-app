@@ -1,0 +1,134 @@
+wsl --install
+wsl --install -s Ubuntu
+
+optionalfeatures -vm,windows subsystem
+Batch 1 — Install and configure Hadoop----------------------------------------------
+
+set -e
+
+sudo apt update
+sudo apt install -y openjdk-17-jdk openssh-server openssh-client rsync wget
+
+export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+export HADOOP_HOME=/usr/local/hadoop
+export HADOOP_CONF_DIR=$HADOOP_HOME/etc/hadoop
+export PATH=$PATH:$HADOOP_HOME/bin:$HADOOP_HOME/sbin
+
+if [ ! -d "$HADOOP_HOME" ]; then
+  cd /tmp
+  wget https://dlcdn.apache.org/hadoop/common/hadoop-3.5.0/hadoop-3.5.0.tar.gz
+  sudo tar -xzf hadoop-3.5.0.tar.gz -C /usr/local/
+  sudo mv /usr/local/hadoop-3.5.0 /usr/local/hadoop
+fi
+
+sudo chown -R "$USER":"$USER" "$HADOOP_HOME"
+mkdir -p "$HADOOP_HOME/logs"
+
+grep -qxF 'export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64' ~/.bashrc || echo 'export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64' >> ~/.bashrc
+grep -qxF 'export HADOOP_HOME=/usr/local/hadoop' ~/.bashrc || echo 'export HADOOP_HOME=/usr/local/hadoop' >> ~/.bashrc
+grep -qxF 'export HADOOP_CONF_DIR=$HADOOP_HOME/etc/hadoop' ~/.bashrc || echo 'export HADOOP_CONF_DIR=$HADOOP_HOME/etc/hadoop' >> ~/.bashrc
+grep -qxF 'export PATH=$PATH:$HADOOP_HOME/bin:$HADOOP_HOME/sbin' ~/.bashrc || echo 'export PATH=$PATH:$HADOOP_HOME/bin:$HADOOP_HOME/sbin' >> ~/.bashrc
+
+grep -q '^export JAVA_HOME=' "$HADOOP_HOME/etc/hadoop/hadoop-env.sh" \
+  && sed -i 's|^export JAVA_HOME=.*|export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64|' "$HADOOP_HOME/etc/hadoop/hadoop-env.sh" \
+  || echo 'export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64' >> "$HADOOP_HOME/etc/hadoop/hadoop-env.sh"
+
+cat > "$HADOOP_HOME/etc/hadoop/core-site.xml" <<'EOF'
+<?xml version="1.0"?>
+<configuration>
+  <property>
+    <name>fs.defaultFS</name>
+    <value>hdfs://localhost:9000</value>
+  </property>
+</configuration>
+EOF
+
+cat > "$HADOOP_HOME/etc/hadoop/hdfs-site.xml" <<'EOF'
+<?xml version="1.0"?>
+<configuration>
+  <property>
+    <name>dfs.replication</name>
+    <value>1</value>
+  </property>
+</configuration>
+EOF
+
+mkdir -p ~/.ssh
+chmod 700 ~/.ssh
+[ -f ~/.ssh/id_rsa ] || ssh-keygen -t rsa -N '' -f ~/.ssh/id_rsa
+touch ~/.ssh/authorized_keys ~/.ssh/known_hosts
+grep -qxF "$(cat ~/.ssh/id_rsa.pub)" ~/.ssh/authorized_keys || cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+ssh-keyscan -H localhost >> ~/.ssh/known_hosts 2>/dev/null
+sort -u ~/.ssh/known_hosts -o ~/.ssh/known_hosts
+sudo service ssh start
+ssh -o BatchMode=yes localhost exit
+
+NAME_DIR="/tmp/hadoop-$USER/dfs/name"
+if [ ! -f "$NAME_DIR/current/VERSION" ]; then
+  if [ -d "$NAME_DIR/current" ] && [ "$(ls -A "$NAME_DIR/current" 2>/dev/null)" ]; then
+    echo "STOP: Existing NameNode files need checking. Do not format."
+    exit 1
+  fi
+  hdfs namenode -format -nonInteractive
+fi
+
+source ~/.bashrc
+echo "Hadoop installation and configuration completed."
+hadoop version
+
+Batch 2 — Start Hadoop and run WordCount-----------------------
+
+set -e
+
+export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+export HADOOP_HOME=/usr/local/hadoop
+export HADOOP_CONF_DIR=$HADOOP_HOME/etc/hadoop
+export PATH=$PATH:$HADOOP_HOME/bin:$HADOOP_HOME/sbin
+
+sudo service ssh start
+start-dfs.sh
+sleep 5
+
+hdfs dfs -mkdir -p "/user/$USER/input"
+
+printf 'hello hadoop\nhello linux\nhadoop is useful\nhello world\n' > ~/wordcount.txt
+
+hdfs dfs -put -f ~/wordcount.txt "/user/$USER/input/"
+hdfs dfs -rm -r -f "/user/$USER/output"
+
+hadoop jar "$HADOOP_HOME/share/hadoop/mapreduce/hadoop-mapreduce-examples-3.5.0.jar" wordcount "/user/$USER/input" "/user/$USER/output"
+
+echo "===== WORDCOUNT OUTPUT ====="
+hdfs dfs -cat "/user/$USER/output/part-r-00000"
+
+echo "===== RUNNING HADOOP PROCESSES ====="
+jps
+
+--------------------------------------------------------------------------
+printf 'apple mango\napple orange\nmango apple\n' > ~/wordcount.txt
+--------------------------------------------------------------------------
+
+hdfs dfs -put -f ~/wordcount.txt "/user/$USER/input/"
+hdfs dfs -rm -r -f "/user/$USER/output"
+hadoop jar "$HADOOP_HOME/share/hadoop/mapreduce/hadoop-mapreduce-examples-3.5.0.jar" wordcount "/user/$USER/input" "/user/$USER/output"
+hdfs dfs -cat "/user/$USER/output/part-r-00000"
+--------------------------------------------------------------------------------
+nano ~/wordcount.txt
+----------------------------------------------------------------------------------
+
+hdfs dfs -put -f ~/wordcount.txt "/user/$USER/input/"
+hdfs dfs -rm -r -f "/user/$USER/output"
+hadoop jar "$HADOOP_HOME/share/hadoop/mapreduce/hadoop-mapreduce-examples-3.5.0.jar" wordcount "/user/$USER/input" "/user/$USER/output"
+hdfs dfs -cat "/user/$USER/output/part-r-00000"
+------------------------------------------------------------------------------------
+nano ~/wordcount.txt
+
+hdfs dfs -put -f ~/wordcount.txt /user/$USER/input/
+hdfs dfs -rm -r -f /user/$USER/output
+
+hadoop jar "$HADOOP_HOME/share/hadoop/mapreduce/hadoop-mapreduce-examples-3.5.0.jar" wordcount /user/$USER/input /user/$USER/output
+
+echo "===== UPDATED WORDCOUNT RESULT ====="
+hdfs dfs -cat /user/$USER/output/part-r-00000
+---------------------------------------------------------------------------------------

@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Simple Auth0 Login</title>
+</head>
+<body>
+    <h2>Student Login</h2>
+
+    <button id="login" onclick="signIn()">Login</button>
+
+    <div id="home" style="display:none">
+        <h2>Welcome!</h2>
+        <p id="user"></p>
+        <button onclick="signOut()">Logout</button>
+    </div>
+
+    <script src="https://cdn.auth0.com/js/auth0-spa-js/2.1/auth0-spa-js.production.js"></script>
+
+    <script>
+        let auth;
+
+        async function start() {
+            auth = await auth0.createAuth0Client({
+                domain: "dev-5oww5xqg0txccmfv.us.auth0.com",
+                clientId: "6EDU29OnN9xJn1sCz547sYvBXY7oHTG1",
+                authorizationParams: {
+                    redirect_uri: location.origin
+                }
+            });
+
+            if (location.search.includes("code=")) {
+                await auth.handleRedirectCallback();
+                history.replaceState({}, "", "/");
+            }
+
+            if (await auth.isAuthenticated()) {
+                let user = await auth.getUser();
+                document.getElementById("login").style.display = "none";
+                document.getElementById("home").style.display = "block";
+                document.getElementById("user").textContent =
+                    "Hello, " + user.name;
+            }
+        }
+
+        function signIn() {
+            auth.loginWithRedirect();
+        }
+
+        function signOut() {
+            auth.logout({
+                logoutParams: { returnTo: location.origin }
+            });
+        }
+
+        start();
+    </script>
+</body>
+</html>

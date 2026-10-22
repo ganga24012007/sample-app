@@ -74,3 +74,93 @@ int main() {
 
 gcc -fopenmp omp_array_sum.c -o omp_array_sum
 OMP_NUM_THREADS=4 ./omp_array_sum
+---------------------------------------------------------------------------------------------
+
+#include <stdio.h>
+#include <mpi.h>
+
+int main(int argc, char *argv[]) {
+    int rank, size;
+    int a[8] = {12, 45, 3, 89, 21, 6, 54, 10};
+    int local_max, local_min;
+    int max, min, i;
+
+    MPI_Init(&argc, &argv);
+
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+
+    local_max = a[rank * 2];
+    local_min = a[rank * 2];
+
+    for (i = rank * 2; i < rank * 2 + 2; i++) {
+        if (a[i] > local_max)
+            local_max = a[i];
+
+        if (a[i] < local_min)
+            local_min = a[i];
+    }
+
+    MPI_Reduce(&local_max, &max, 1, MPI_INT,
+               MPI_MAX, 0, MPI_COMM_WORLD);
+
+    MPI_Reduce(&local_min, &min, 1, MPI_INT,
+               MPI_MIN, 0, MPI_COMM_WORLD);
+
+    if (rank == 0) {
+        printf("Maximum = %d\n", max);
+        printf("Minimum = %d\n", min);
+    }
+
+    MPI_Finalize();
+    return 0;
+}
+
+--------------------------------------------------------------------------------------------------
+
+#include <stdio.h>
+#include <string.h>
+#include <mpi.h>
+
+int main(int argc, char *argv[]) {
+    char words[8][20] = {
+        "apple", "mango", "apple", "grape",
+        "orange", "mango", "kiwi", "banana"
+    };
+
+    int rank, size, i, j, count;
+    int unique[8] = {0};
+
+    MPI_Init(&argc, &argv);
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+
+    for (i = rank; i < 8; i += size) {
+        count = 0;
+
+        for (j = 0; j < 8; j++) {
+            if (strcmp(words[i], words[j]) == 0)
+                count++;
+        }
+
+        if (count == 1)
+            unique[i] = 1;
+    }
+
+    int all_unique[8];
+
+    MPI_Reduce(unique, all_unique, 8, MPI_INT,
+               MPI_MAX, 0, MPI_COMM_WORLD);
+
+    if (rank == 0) {
+        printf("Unique words:\n");
+
+        for (i = 0; i < 8; i++) {
+            if (all_unique[i] == 1)
+                printf("%s\n", words[i]);
+        }
+    }
+
+    MPI_Finalize();
+    return 0;
+}

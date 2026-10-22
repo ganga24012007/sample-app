@@ -41,10 +41,11 @@ int main(int argc, char *argv[]) {
     return 0;
 }
 mpirun -np 4 ./parallel_sum
-
+-----------------------------------------------------------------------------------------------------
 openmp
 
 nano omp_array_sum.c
+
 
 
 #include <stdio.h>
@@ -75,7 +76,6 @@ int main() {
 gcc -fopenmp omp_array_sum.c -o omp_array_sum
 OMP_NUM_THREADS=4 ./omp_array_sum
 ---------------------------------------------------------------------------------------------
-
 #include <stdio.h>
 #include <mpi.h>
 
